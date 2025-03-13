@@ -27,10 +27,15 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 @AllArgsConstructor
 public class LoggingWebFilter implements WebFilter {
     private final KpiLogService kpiLogService;
     private final Log logger = LogFactory.getLog(LoggingWebFilter.class);
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     @Autowired
     private ApplicationInfo applicationInfo;
     private static final String[] HEADERS_TO_TRY = {
@@ -55,7 +60,7 @@ public class LoggingWebFilter implements WebFilter {
         StringBuilder sessionId = new StringBuilder();
         StringBuilder username = new StringBuilder();
         StringBuilder account = new StringBuilder();
-        Long startTime = System.currentTimeMillis();
+        LocalDateTime startTime = LocalDateTime.now();
         Mono<Void> prepareMono = Mono.zip(
                 exchange
                         .getSession()
@@ -67,8 +72,8 @@ public class LoggingWebFilter implements WebFilter {
                         .map(Authentication::getName)
                         .defaultIfEmpty("[anonymous]")
                         .doOnNext(username::append)
-                        .doOnNext(account::append)
-        ).then();
+                        .doOnNext(account::append))
+                .then();
         ServerHttpRequestDecorator requestDecorator = new ServerHttpRequestDecorator(originalRequest) {
             @Override
             public Flux<DataBuffer> getBody() {
@@ -101,13 +106,12 @@ public class LoggingWebFilter implements WebFilter {
                                     account.toString(),
                                     originalRequest,
                                     originalResponse,
-                                    startTime
-                            ).subscribe();
-                        })
-                );
+                                    startTime).subscribe();
+                        }));
             }
         };
-        ServerWebExchange serverWebExchange = exchange.mutate().request(requestDecorator).response(responseDecorator).build();
+        ServerWebExchange serverWebExchange = exchange.mutate().request(requestDecorator).response(responseDecorator)
+                .build();
         return prepareMono.then(chain.filter(serverWebExchange));
     }
 
@@ -119,8 +123,7 @@ public class LoggingWebFilter implements WebFilter {
             String account,
             ServerHttpRequest request,
             ServerHttpResponse response,
-            Long startTime
-    ) {
+            LocalDateTime startTime) {
         KpiLog kpiLog = new KpiLog();
         kpiLog.setApplicationCode(applicationInfo.getApplicationCode());
         kpiLog.setServiceCode(applicationInfo.getServiceCode());
@@ -137,11 +140,11 @@ public class LoggingWebFilter implements WebFilter {
         kpiLog.setResponseContent(responseBody);
         kpiLog.setSessionId(sessionId);
         kpiLog.setUsername(username);
-        kpiLog.setStartTime(startTime.toString());
-        Long endTime = System.currentTimeMillis();
-        long duration = endTime - startTime;
-        kpiLog.setEndTime(endTime.toString());
-        kpiLog.setDuration(Long.toString(duration));
+        kpiLog.setStartTime(startTime.format(formatter));
+        LocalDateTime endTime = LocalDateTime.now();
+        long duration = Duration.between(startTime, endTime).toMillis();
+        kpiLog.setEndTime(endTime.format(formatter));
+        kpiLog.setDuration(String.valueOf(duration));
         if (response.getStatusCode() != HttpStatus.OK) {
             kpiLog.setErrorCode(String.valueOf(response.getStatusCode()));
             kpiLog.setErrorDescription(responseBody);
@@ -150,7 +153,7 @@ public class LoggingWebFilter implements WebFilter {
     }
 
     private String getClientIpAddress(ServerHttpRequest request) {
-        for (String header: HEADERS_TO_TRY) {
+        for (String header : HEADERS_TO_TRY) {
             String ip = request.getHeaders().getFirst(header);
             if (ip != null && !ip.isEmpty() && !"unknown".equalsIgnoreCase(ip)) {
                 return ip;
