@@ -1,6 +1,7 @@
 package com.atviettelsolutions.config;
 
 import com.atviettelsolutions.services.KpiLogService;
+import com.google.gson.Gson;
 import io.grpc.ServerInterceptor;
 import net.devh.boot.grpc.server.interceptor.GrpcGlobalServerInterceptor;
 import org.springframework.context.annotation.Bean;
@@ -11,14 +12,20 @@ public class KpiLogGrpcConfiguration {
     @Bean
     @GrpcGlobalServerInterceptor
     @Order(1)
-    public ServerInterceptor authInterceptor(ReactiveJwtDecoder jwtDecoder) {
-        return new JwtReactiveGrpcInterceptor(jwtDecoder);
+    public ServerInterceptor loggingInterceptor(ApplicationInfo applicationInfo, KpiLogService kpiLogService,
+            GrpcContext grpcContext, Gson gson) {
+        return new LoggingGrpcInterceptor(applicationInfo, kpiLogService, grpcContext, gson);
     }
 
     @Bean
     @GrpcGlobalServerInterceptor
     @Order(2)
-    public ServerInterceptor loggingInterceptor(ApplicationInfo applicationInfo, KpiLogService kpiLogService) {
-        return new LoggingGrpcInterceptor(applicationInfo, kpiLogService);
+    public ServerInterceptor authInterceptor(ReactiveJwtDecoder jwtDecoder, GrpcContext grpcContext) {
+        return new JwtReactiveGrpcInterceptor(jwtDecoder, grpcContext);
+    }
+
+    @Bean
+    public GrpcContext grpcContext() {
+        return new GrpcContext();
     }
 }

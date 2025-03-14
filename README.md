@@ -1,4 +1,4 @@
-## Quick start
+## Quick Start
 
 - Just add the dependency to an existing Spring Boot project
 
@@ -14,13 +14,15 @@
 
 ```properties
 kpilog.grpc.enable=true #if you wanna kpi log for grpc request
+app.application.code=app_code #code of your application
+app.service.code=service_code #code of your service
 ```
 
 - Then, create a repository class that implements `KpiLogRepository` class if you want to write log to database, default is logging to console
 
 ```java
 @Repository
-public class LogRepitory extends ReactiveMongoRepository<KpiLog, String>, KpiLogRepository {
+public interface LogRepitory extends ReactiveMongoRepository<KpiLog, String>, KpiLogRepository {
     @Override
     default Mono<Void> writeLog(KpiLog kpiLog) {
         return save(kpiLog).then(Mono.empty());
@@ -38,6 +40,22 @@ public class LogRepitory extends ReactiveMongoRepository<KpiLog, String>, KpiLog
 public JavaMainApplication {
     public static void main(String[] args) {
         StringApplication.run(JavaMainApplication.class, args);
+    }
+}
+```
+
+- Get authentication information by using `@Bean` `GrpcContext` of our library:
+
+```java
+import com.atviettelsolutions.config.GrpcContext;
+import org.springframework.security.oauth2.jwt.Jwt;
+
+@AllArgsConstructor
+public class YourService {
+    private final GrpcContext grpcContext;
+
+    public void getAuthentication() {
+        Jwt jwt = grpcContext.getJwt();
     }
 }
 ```

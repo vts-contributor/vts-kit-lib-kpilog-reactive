@@ -1,13 +1,12 @@
 package com.atviettelsolutions.config;
 
 import com.atviettelsolutions.services.KpiLogService;
+import com.google.gson.Gson;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 
-@Import(KpiLogAutoConfiguration.class)
 public class KpiLogRestConfiguration {
     @Bean
-    public LoggingWebFilter loggingWebFilter(ApplicationInfo applicationInfo, KpiLogService kpiLogService) {
-        return new LoggingWebFilter(kpiLogService, applicationInfo);
+    public LoggingWebFilter loggingWebFilter(KpiLogService kpiLogService, Gson gson, ApplicationInfo applicationInfo) {
+        return new LoggingWebFilter(kpiLogService, gson, applicationInfo);
     }
 }

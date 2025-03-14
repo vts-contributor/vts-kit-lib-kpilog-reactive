@@ -17,18 +17,18 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-import static com.atviettelsolutions.config.GrpcContext.JWT_KEY;
-
-
 @Slf4j
 @AllArgsConstructor
-@Order(2)
 public class LoggingGrpcInterceptor implements ServerInterceptor {
     private final ApplicationInfo applicationInfo;
     private final KpiLogService kpiLogService;
+    private final GrpcContext grpcContext;
+    private final Gson gson;
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final JsonFormat.Printer jsonPrinter = JsonFormat.printer()
             .includingDefaultValueFields()
@@ -46,12 +46,12 @@ public class LoggingGrpcInterceptor implements ServerInterceptor {
             "HTTP_VIA",
             "REMOTE_ADDR",
     };
+
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
             ServerCall<ReqT, RespT> call,
             Metadata headers,
-            ServerCallHandler<ReqT, RespT> next
-    ) {
+            ServerCallHandler<ReqT, RespT> next) {
         String fullMethodName = call.getMethodDescriptor().getFullMethodName();
         KpiLog kpiLog = new KpiLog();
         kpiLog.setApplicationCode(applicationInfo.getApplicationCode());
@@ -62,15 +62,13 @@ public class LoggingGrpcInterceptor implements ServerInterceptor {
         var startTime = LocalDateTime.now();
         kpiLog.setStartTime(startTime.format(formatter));
         String hostAddress = "localhost";
+        List<String> responseContents = new ArrayList<>();
         try {
             hostAddress = InetAddress.getLocalHost().getHostAddress();
         } catch (UnknownHostException e) {
             log.warn("The host name could not be determined, using `localhost` as fallback");
         }
         kpiLog.setIpPortCurrentNode(hostAddress);
-        Jwt jwt = JWT_KEY.get();
-        kpiLog.setUsername(extractUserName(jwt));
-        kpiLog.setAccount(extractAccount(jwt));
         return new ForwardingServerCallListener.SimpleForwardingServerCallListener<ReqT>(
                 next.startCall(new ForwardingServerCall.SimpleForwardingServerCall<ReqT, RespT>(call) {
                     @Override
@@ -79,16 +77,49 @@ public class LoggingGrpcInterceptor implements ServerInterceptor {
                         var duration = Duration.between(startTime, endTime).toMillis();
                         kpiLog.setEndTime(endTime.format(formatter));
                         kpiLog.setDuration(String.valueOf(duration));
-                        kpiLog.setResponseContent(messageToJson(response));
-                        kpiLogService.save(kpiLog).subscribe();
+                        responseContents.add(messageToJson(response));
+                        kpiLog.setTransactionStatus(1);
                         super.sendMessage(response);
                     }
-                }, headers)
-        ) {
+
+                    @Override
+                    public void close(Status status, Metadata trailers) {
+                        if (!status.isOk()) {
+                            var endTime = LocalDateTime.now();
+                            var duration = Duration.between(startTime, endTime).toMillis();
+                            kpiLog.setEndTime(endTime.format(formatter));
+                            kpiLog.setDuration(String.valueOf(duration));
+                            kpiLog.setErrorCode(status.getCode().toString());
+                            kpiLog.setErrorDescription(status.getDescription());
+                            kpiLog.setTransactionStatus(0);
+                        }
+                        Jwt jwt = grpcContext.getJwt();
+                        if (jwt != null) {
+                            kpiLog.setUsername(extractUserName(jwt));
+                            kpiLog.setAccount(extractAccount(jwt));
+                        }
+                        kpiLog.setResponseContent(gson.toJson(responseContents));
+                        grpcContext.setJwt(null);
+                        kpiLogService.save(kpiLog).subscribe();
+                        super.close(status, trailers);
+                    }
+                }, headers)) {
             @Override
             public void onMessage(ReqT request) {
-                kpiLog.setRequestContent(messageToJson(request));
+                kpiLog.setRequestContent(gson.toJson(messageToJson(request)));
                 super.onMessage(request);
+            }
+
+            @Override
+            public void onCancel() {
+                var endTime = LocalDateTime.now();
+                var duration = Duration.between(startTime, endTime).toMillis();
+                kpiLog.setEndTime(endTime.format(formatter));
+                kpiLog.setDuration(String.valueOf(duration));
+                kpiLog.setErrorCode("CANCELLED");
+                kpiLog.setErrorDescription("Request cancelled by client");
+                kpiLog.setTransactionStatus(0);
+                super.onCancel();
             }
         };
     }
@@ -102,7 +133,7 @@ public class LoggingGrpcInterceptor implements ServerInterceptor {
     }
 
     private String extractClientIp(Metadata headers) {
-        for (String header: HEADERS_TO_TRY) {
+        for (String header : HEADERS_TO_TRY) {
             Metadata.Key<String> headerKey = Metadata.Key.of(header.toLowerCase(), Metadata.ASCII_STRING_MARSHALLER);
             String ipAddress = headers.get(headerKey);
             if (ipAddress != null)
@@ -113,7 +144,7 @@ public class LoggingGrpcInterceptor implements ServerInterceptor {
 
     private String extractUserName(Jwt jwt) {
         String username = jwt.getClaimAsString("preferred_name");
-        return !Objects.equals(username, "") ? username : jwt.getSubject();
+        return username != null ? username : jwt.getSubject();
     }
 
     private String extractAccount(Jwt jwt) {
@@ -124,7 +155,8 @@ public class LoggingGrpcInterceptor implements ServerInterceptor {
         try {
             if (message instanceof MessageOrBuilder) {
                 return jsonPrinter.print((MessageOrBuilder) message);
-            } else return message.toString();
+            } else
+                return message.toString();
         } catch (InvalidProtocolBufferException e) {
             log.warn("Failed to convert message to JSON", e);
             return "{\"error\": \"Failed to convert message to JSON\"}";

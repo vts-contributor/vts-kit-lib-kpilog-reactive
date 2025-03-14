@@ -13,10 +13,12 @@ import java.util.List;
 
 public class KpiLogConfigurationSelector implements ImportSelector, EnvironmentAware {
     private Environment environment;
+
     @Override
     public void setEnvironment(Environment environment) {
         this.environment = environment;
     }
+
     @Override
     public String[] selectImports(AnnotationMetadata importingClassMetadata) {
         List<String> imports = new ArrayList<>();

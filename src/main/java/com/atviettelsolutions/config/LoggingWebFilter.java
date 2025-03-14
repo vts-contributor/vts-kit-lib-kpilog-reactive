@@ -34,9 +34,9 @@ import java.time.format.DateTimeFormatter;
 @AllArgsConstructor
 public class LoggingWebFilter implements WebFilter {
     private final KpiLogService kpiLogService;
+    private final Gson gson;
     private final Log logger = LogFactory.getLog(LoggingWebFilter.class);
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    @Autowired
     private ApplicationInfo applicationInfo;
     private static final String[] HEADERS_TO_TRY = {
             "X-Forwarded-For",
@@ -60,7 +60,7 @@ public class LoggingWebFilter implements WebFilter {
         StringBuilder sessionId = new StringBuilder();
         StringBuilder username = new StringBuilder();
         StringBuilder account = new StringBuilder();
-        LocalDateTime startTime = LocalDateTime.now();
+        var startTime = LocalDateTime.now();
         Mono<Void> prepareMono = Mono.zip(
                 exchange
                         .getSession()
@@ -74,6 +74,7 @@ public class LoggingWebFilter implements WebFilter {
                         .doOnNext(username::append)
                         .doOnNext(account::append))
                 .then();
+        KpiLog kpiLog = new KpiLog();
         ServerHttpRequestDecorator requestDecorator = new ServerHttpRequestDecorator(originalRequest) {
             @Override
             public Flux<DataBuffer> getBody() {
@@ -136,14 +137,14 @@ public class LoggingWebFilter implements WebFilter {
         }
         kpiLog.setIpPortParentNode(hostAddress);
         kpiLog.setIpPortCurrentNode(getClientIpAddress(request));
-        kpiLog.setRequestContent(requestBody);
-        kpiLog.setResponseContent(responseBody);
+        kpiLog.setRequestContent(gson.toJson(requestBody));
+        kpiLog.setResponseContent(gson.toJson(responseBody));
         kpiLog.setSessionId(sessionId);
         kpiLog.setUsername(username);
         kpiLog.setStartTime(startTime.format(formatter));
-        LocalDateTime endTime = LocalDateTime.now();
-        long duration = Duration.between(startTime, endTime).toMillis();
-        kpiLog.setEndTime(endTime.format(formatter));
+        var endTime = LocalDateTime.now();
+        var duration = Duration.between(startTime, endTime).toMillis();
+        kpiLog.setEndTime(endTime.toString());
         kpiLog.setDuration(String.valueOf(duration));
         if (response.getStatusCode() != HttpStatus.OK) {
             kpiLog.setErrorCode(String.valueOf(response.getStatusCode()));

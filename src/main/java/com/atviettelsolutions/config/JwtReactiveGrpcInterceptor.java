@@ -1,25 +1,25 @@
 package com.atviettelsolutions.config;
 
+import com.atviettelsolutions.domain.KpiLog;
 import io.grpc.*;
 import lombok.AllArgsConstructor;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.atviettelsolutions.config.GrpcContext.JWT_KEY;
-
 @AllArgsConstructor
-@Order(1)
 public class JwtReactiveGrpcInterceptor implements ServerInterceptor {
     private final ReactiveJwtDecoder reactiveJwtDecoder;
+    private final GrpcContext grpcContext;
+
     @Override
     public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
             ServerCall<ReqT, RespT> call,
             Metadata headers,
-            ServerCallHandler<ReqT, RespT> next
-    ) {
+            ServerCallHandler<ReqT, RespT> next) {
         Metadata.Key<String> authKey = Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER);
         String authHeader = headers.get(authKey);
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -30,15 +30,18 @@ public class JwtReactiveGrpcInterceptor implements ServerInterceptor {
         reactiveJwtDecoder.decode(token)
                 .subscribe(
                         jwt -> {
-                        Context ctx = Context.current().withValue(JWT_KEY, jwt);
-                        ServerCall.Listener<ReqT> delegate = Contexts.interceptCall(ctx, call, headers, next);
-                        delayedListener.setDelegate(delegate);
+                            Context ctx = Context.current();
+                            grpcContext.setJwt(jwt);
+                            ServerCall.Listener<ReqT> delegate = Contexts.interceptCall(ctx, call, headers, next);
+                            delayedListener.setDelegate(delegate);
                         },
                         ex -> {
-                            call.close(Status.UNAUTHENTICATED.withDescription("Token validation failed: " + ex.getMessage()), headers);
+                            call.close(Status.UNAUTHENTICATED
+                                    .withDescription("Token validation failed: " + ex.getMessage()), headers);
                         });
         return delayedListener;
     }
+
     private static class DelayedListener<ReqT> extends ServerCall.Listener<ReqT> {
 
         private ServerCall.Listener<ReqT> delegate;

@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 
 @Configuration
-@EnableConfigurationProperties({ApplicationInfo.class})
+@EnableConfigurationProperties({ ApplicationInfo.class })
 @Slf4j
 public class KpiLogAutoConfiguration {
     @Bean
@@ -21,10 +21,15 @@ public class KpiLogAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(KpiLogRepository.class)
-    public KpiLogRepository defaultKpiLogRepository() {
+    public KpiLogRepository defaultKpiLogRepository(Gson gson) {
         return kpiLog -> {
-            log.info(new Gson().toJson(kpiLog));
+            log.info(gson.toJson(kpiLog));
             return Mono.empty();
         };
+    }
+
+    @Bean
+    public Gson gson() {
+        return new Gson();
     }
 }
